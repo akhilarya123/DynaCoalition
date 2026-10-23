@@ -40,7 +40,7 @@ obs_i ─► GRU ─► h_i ─► Q_i(a_i)            ← the only part used at
 
 **1. Affinity** (only between nearby agents, via a kNN/radius mask `M`)
 
-$$W_{ij} = M_{ij}\,\sigma\!\left(\frac{e_i^\top e_j}{\sqrt d}\right), \qquad W_{ii}=0$$
+$$W_{ij} = M_{ij}\sigma\left(\frac{e_i^\top e_j}{\sqrt d}\right), \qquad W_{ii}=0$$
 
 **2. Soft membership** (`K` coalition slots + 1 background slot)
 
@@ -48,7 +48,7 @@ $$S = \mathrm{softmax}\big(\mathrm{GNN}(W, h, x)\big) \in \mathbb{R}^{N\times(K+
 
 **3. Coalition value and team value**
 
-$$Q_k = \sum_i S_{ik}\, w_i\, Q_i \qquad\qquad Q_{tot} = b(s) + \sum_k g\big(Q_k;\, s,\, z_k,\, m_k\big)$$
+$$Q_k = \sum_i S_{ik} w_i Q_i \qquad\qquad Q_{tot} = b(s) + \sum_k g\big(Q_k; s, z_k, m_k\big)$$
 
 - `w_i ≥ 0`: per-agent weight.
 - `m_k = Σ_i S_ik`: coalition size, so `g` can tell a 1-agent group from a 3-agent group.
