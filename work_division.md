@@ -10,7 +10,7 @@ This expands [EXPERIMENT_PLAN.md](EXPERIMENT_PLAN.md) Section 9 and, where the t
 
 Two things in `EXPERIMENT_PLAN.md` Section 9 are right and stay:
 
-- **Each person owns exactly one hard, uncertain piece.** Abhishek: the training loop. Akhil: the environment. These are the two items that can sink the schedule, and they are genuinely parallel once the environment contract (`Architecture.md`, Section 7) is agreed.
+- **Each person owns exactly one hard, uncertain piece.** Abhishek: the training loop. Akhil: the environment. These are the two items that can sink the schedule, and they are genuinely parallel once the environment contract (`Architecture.md`, Section 8) is agreed.
 - **Full and Detached run paired on the same machine and device.** This is a correctness requirement for the key experiment, not a convenience, so the GPU box runs both regardless of how the rest splits.
 
 ## 2. What "equal" means here
@@ -135,7 +135,7 @@ Nothing else starts until these exist, because every later set is written agains
 
 | File | What it pins down |
 |---|---|
-| `src/dc/contracts.py` | `EnvSpec` (including **K = N/2**), the batch keys and shapes from `Architecture.md` §7, `validate_batch`, `validate_memberships`, the `MembershipProvider` protocol, `METRICS_COLUMNS`, and `EvalRecord` |
+| `src/dc/contracts.py` | `EnvSpec` (including **K = N/2**), the batch keys and shapes from `Architecture.md` §8, `validate_batch`, `validate_memberships`, the `MembershipProvider` protocol, `METRICS_COLUMNS`, and `EvalRecord` |
 | `src/dc/envs/fake.py` | A contract-shaped fake environment, so both halves of the code have data on day one |
 | `configs/base.yaml` | Seeds, device, buffer, eval cadence, K rule, and the dotted-path config convention |
 | `src/dc/device.py`, `seeding.py` | One place each for device selection and reproducible seeding |

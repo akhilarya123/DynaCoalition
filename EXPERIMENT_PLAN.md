@@ -99,16 +99,23 @@ Measure training throughput early (day 2) and size the grid from it.
 
 ## 9. Work split
 
-| Abhishek (Claude Pro + GPU) | Akhil (MacBook) |
+**[work_division.md](work_division.md) is the authoritative version of this section.** It holds the agreed split, the repo layout, the task sets and the sync points. The summary below is kept here so this plan reads on its own.
+
+| Abhishek (Claude Pro + GPU) | Akhil (M1 Air) |
 |---|---|
 | **Shared training loop:** replay of whole episodes, masking, Double-Q, Polyak updates, schedules | **The multi-package VMAS environment:** respawning, contact labels, reward shaping, physics tuning |
-| **DynaCoalition modules:** graph network, CoalitionMix, structure losses, unit tests | **The evaluator:** return, packages, ARI (both versions), switch rate |
-| **Main GPU runs:** Full, Detached, QMIX (paired on the same machine); then Oracle and VAST-spatial as GPU time allows | **Baseline and control code** (VDN, VAST-spatial, position clustering, random S), plugged into the shared loop via `--algo` |
-| Report sections: method and experimental setup | **Cheap CPU runs** (VDN, random S, extra seeds); **rliable analysis and figures**; **final report assembly** |
+| **DynaCoalition modules:** graph network, CoalitionMix, structure losses, unit tests | **The controls as membership providers** (oracle, position clustering, random S, nearest-package) **plus VAST-spatial** |
+| **Diagnostics logging:** ‖∇_GNN L_TD‖, mean max membership, K_eff | **The evaluator:** return, packages, ARI (both versions), switch rate; then rliable, CIs, and all figures |
+| **All paired runs** (QMIX, Full, Detached), Oracle, VAST-spatial, and everything at N = 24 | **The unpaired runs at N = 12** on the Mac: VDN, random S, nearest-package, position clustering |
+| Report sections: method and experimental setup | Report sections: results, analysis, related work, final assembly |
 
-**Balance:** each person owns one hard, uncertain piece (the training loop vs. the environment). The GPU handles the heavy runs; Akhil leads analysis and writing once runs are going.
+**Balance:** each person owns one hard, uncertain piece (the training loop vs. the environment), one piece of the key science (the method vs. the controls that bracket it), and one half of the report.
 
-**The early dependency:** agree on the environment contract (Architecture.md, Section 7) first, so the training loop can be built against fake data while the environment is finished.
+**What must stay single-machine:** the paired Full/Detached/QMIX comparison, and the whole wall-clock overhead row in Section 5. Return and packages delivered are machine-independent, so the Mac runs drop into the same figures.
+
+**The early dependency:** agree on the environment contract (Architecture.md, Section 8) first, so the training loop can be built against fake data while the environment is finished. This is done: `src/dc/contracts.py` and `src/dc/envs/fake.py` are in the repo.
+
+**No `--algo` dispatch.** Configs name a dotted path (`dc.membership.oracle:OracleProvider`), resolved by `dc.contracts.resolve`, so adding a control is one new file plus one new yaml and touches nothing the other owner owns.
 
 **Git:** `main` plus one feature branch per person. Don't commit checkpoints or replay buffers; commit only lightweight `metrics.csv` / `summary.json` files under `experiments/`.
 
@@ -124,9 +131,11 @@ Measure training throughput early (day 2) and size the grid from it.
 - Temperature and sharpness annealed late; TD gradient size and membership sharpness logged.
 - Full and Detached are paired on the same machine and device.
 - The baseline and control set, and the priority order, are as above.
+- **K = N/2** (6 at N = 12, 12 at N = 24). It never equals M = N/3 at either size, so no task knowledge leaks. Enforced in `dc.contracts.k_slots_for`.
+- **The training loop is written from scratch** (thin) rather than forked from pymarl2 or built on BenchMARL: the detach semantics, the shared g and the background head cut across the mixer.
+- **The controls belong to Akhil**, and his M1 owns the unpaired N = 12 runs. No SSH between machines; the fallback for GPU-only work is a config committed to `runs/queue.yaml`.
 
 **Open:**
-- **The exact K:** a fixed value (e.g., 8) or a fraction of N (e.g., N/2).
 - **The overhead threshold:** 1.5× (proposal) vs. 2.0× (Akhil's plan).
 - **Evaluation episodes:** 16 vs. 32 per evaluation.
 - **VAST-spatial assignment:** grid regions vs. k-means.

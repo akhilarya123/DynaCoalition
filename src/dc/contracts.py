@@ -10,9 +10,9 @@ installing torch.
 
 Time convention
 ---------------
-``Architecture.md`` Section 7 lists every batch key with a leading ``(B, T)``,
-but the Double-Q snippet in the same section slices ``q_online[:, 1:]``, which
-needs one extra step to bootstrap from. We resolve that here:
+``Architecture.md`` Section 8 lists the batch keys; the Double-Q snippet in
+Section 7 slices ``q_online[:, 1:]``, which needs one extra step to bootstrap
+from. Both the table and this module now say:
 
 * **Observation-like keys** (``obs``, ``state``, ``positions``,
   ``agent_features``, ``avail_actions``) have length **T + 1**.

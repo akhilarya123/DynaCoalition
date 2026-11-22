@@ -29,7 +29,7 @@ In cooperative MARL, agents share one team reward, but usually only a few agents
 | Symbol | Meaning | Shape |
 |---|---|---|
 | B, T, N | batch (episodes), timesteps, agents | |
-| K | number of coalition slots (excludes background) | hyperparameter, **not tied to the number of packages** |
+| K | number of coalition slots (excludes background) | hyperparameter, **not tied to the number of packages**. Agreed rule: **K = N/2** (6 at N = 12, 12 at N = 24), which never equals M = N/3 |
 | `obs` | per-agent observations | (B, T, N, obs_dim) |
 | `s` | global state (training only) | (B, T, state_dim) |
 | `p` | agent positions | (B, T, N, 2) |
@@ -154,20 +154,22 @@ def compute_structure_loss(S, W, mask, *, cap: float, betas: dict) -> dict:
     """Returns {"cut": ..., "cap": ..., "sharp": ..., "temp": ..., "total": ...}."""
 ```
 
-**The environment contract** (keys in each sampled batch, all with a leading (B, T)):
+**The environment contract** (keys in each sampled batch). A batch holds **T transitions and the T+1 states they run between**: observation-like keys carry T+1 steps so the Double-Q target in Section 7 can bootstrap from t+1, and transition keys carry T.
 
 | Key | Shape | Notes |
 |---|---|---|
-| `obs` | (B, T, N, obs_dim) | Agent inputs |
-| `state` | (B, T, state_dim) | Global state for the mixer |
-| `positions` | (B, T, N, 2) | For W |
-| `agent_features` | (B, T, N, x_dim) | x |
-| `gt_coalitions` | (B, T, N) int | 0 = no contact, k = in contact with package k |
+| `obs` | (B, **T+1**, N, obs_dim) | Agent inputs |
+| `state` | (B, **T+1**, state_dim) | Global state for the mixer |
+| `positions` | (B, **T+1**, N, 2) | For W |
+| `agent_features` | (B, **T+1**, N, x_dim) | x |
+| `avail_actions` | (B, **T+1**, N, A) | All ones in VMAS transport |
 | `actions` | (B, T, N, 1) int | Chosen actions |
-| `avail_actions` | (B, T, N, A) | All ones in VMAS transport |
+| `gt_coalitions` | (B, T, N) int | 0 = no contact, k = in contact with package k |
 | `rewards` | (B, T, 1) | Shared team reward |
 | `dones` | (B, T, 1) | Terminal flags |
 | `mask` | (B, T, 1) | Real steps |
+
+`src/dc/contracts.py` is the executable version of this table: `validate_batch(batch, spec)` enforces every shape, dtype and range above, and `src/dc/envs/fake.py` emits batches that satisfy it. If the two ever disagree, fix the code to match this table or change both together.
 
 ## 9. Pseudocode
 

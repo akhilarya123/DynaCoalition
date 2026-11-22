@@ -6,6 +6,8 @@ They use numpy only, so CI catches drift without installing torch.
 
 from __future__ import annotations
 
+import importlib.util
+
 import numpy as np
 import pytest
 
@@ -215,3 +217,45 @@ def test_resolve_imports_a_dotted_path() -> None:
 def test_resolve_rejects_a_malformed_target() -> None:
     with pytest.raises(ContractError):
         resolve("dc.envs.fake.FakeTransportEnv")
+
+
+# -- the torch path (skipped in CI, which installs numpy only) -------------
+
+needs_torch = pytest.mark.skipif(
+    importlib.util.find_spec("torch") is None, reason="torch is not installed"
+)
+
+
+@needs_torch
+def test_torch_and_numpy_backends_agree() -> None:
+    import torch
+
+    numpy_batch = FakeTransportEnv(N12, seed=11).sample_batch(2, 6, backend="numpy")
+    torch_batch = FakeTransportEnv(N12, seed=11).sample_batch(2, 6, backend="torch")
+
+    assert torch.is_tensor(torch_batch["obs"])
+    assert validate_batch(torch_batch, N12) == (2, 6)
+    assert np.allclose(numpy_batch["positions"], torch_batch["positions"].numpy())
+    assert torch_batch["actions"].dtype == torch.int64
+
+
+@needs_torch
+def test_memberships_validate_on_tensors() -> None:
+    import torch
+
+    S = torch.softmax(torch.randn(2, 6, N12.n_agents, N12.n_slots), dim=-1)
+    validate_memberships(S, N12, batch_size=2, horizon=6)
+    with pytest.raises(ContractError, match="sum to 1"):
+        validate_memberships(S * 2.0, N12, batch_size=2, horizon=6)
+
+
+@needs_torch
+def test_device_helpers_move_a_whole_batch() -> None:
+    import torch
+
+    from dc.device import get_device, to_device
+
+    device = get_device("auto")
+    batch = to_device(FakeTransportEnv(N12, seed=12).sample_batch(2, 6, backend="numpy"), device)
+    assert {str(v.device) for v in batch.values()} == {str(device)}
+    assert all(torch.is_tensor(v) for v in batch.values())
