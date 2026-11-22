@@ -218,3 +218,14 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# DynaCoalition
+# Commit only lightweight results (metrics.csv, summary.json) under experiments/.
+*.pt
+*.ckpt
+checkpoints/
+replay_buffers/
+wandb/
+outputs/
+experiments/**/*.pt
+experiments/**/videos/

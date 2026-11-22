@@ -19,3 +19,21 @@ Context for the DynaCoalition course project (Advanced Topics in RL, UW–Madiso
 | [work_division.md](work_division.md) | The proposed work split, the repo layout that keeps us asynchronous, and the day-1 handshake | Before starting implementation |
 
 The approved literature survey PDF is in the repo as `CS839_RL_Literature_Survey.pdf`; its Figure 1 is the architecture diagram (also at `figures/figure1_architecture.png`, embedded in `Architecture.md`).
+
+## Getting started
+
+```bash
+python3 -m venv .venv && source .venv/bin/activate
+pip install -e ".[dev]"
+pytest -q                     # the shared contract tests, numpy only
+```
+
+Torch is installed separately because the two machines need different builds:
+
+```bash
+pip install torch --index-url https://download.pytorch.org/whl/cu121   # GPU laptop
+pip install torch                                                      # M1 / CPU
+pip install -e ".[train,analysis]"                                     # VMAS, rliable, sklearn
+```
+
+`src/dc/contracts.py` is the frozen agreement between both halves of the code — batch shapes, the `MembershipProvider` signature, the `metrics.csv` columns and `EvalRecord`. `src/dc/envs/fake.py` generates contract-shaped data so either half can run before the other is finished. See [work_division.md](work_division.md) for who owns what.

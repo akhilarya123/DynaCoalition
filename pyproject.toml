@@ -1,0 +1,37 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "dynacoalition"
+version = "0.1.0"
+description = "End-to-end task-driven coalition formation for cooperative MARL"
+requires-python = ">=3.10"
+dependencies = [
+    "numpy>=1.24",
+    "pyyaml>=6.0",
+]
+
+[project.optional-dependencies]
+# torch is installed separately: the CUDA build on the GPU laptop, the default
+# wheel on the M1. See the README for the two commands.
+train = [
+    "vmas>=1.4",
+]
+analysis = [
+    "pandas>=2.0",
+    "scikit-learn>=1.3",   # adjusted_rand_score, KMeans
+    "rliable>=1.0.8",
+    "matplotlib>=3.7",
+]
+dev = [
+    "pytest>=7.4",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+filterwarnings = ["error::RuntimeWarning"]

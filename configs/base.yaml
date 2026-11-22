@@ -1,0 +1,64 @@
+# Shared defaults. Per-env and per-algo files override only what differs.
+#
+# The convention that keeps a central --algo dispatch out of the codebase:
+# every swappable component names a dotted path, resolved by dc.contracts.resolve.
+
+seed: 0
+device: auto          # auto | cpu | cuda | mps
+run_dir: experiments
+
+env:
+  target: dc.envs.fake:FakeTransportEnv   # configs/env/*.yaml swaps in the real one
+  n_agents: 12
+  n_packages: 4         # M = N/3
+  obs_dim: 16
+  state_dim: 24
+  x_dim: 7              # position, velocity, nearest-package offset, distance
+  n_actions: 5          # stay, up, down, left, right
+  episode_limit: 200
+
+# K = N/2 (work_division.md Section 8). null uses that rule; an explicit
+# integer overrides it, which only the K-sweep should ever do.
+k_slots: null
+
+agent:
+  target: dc.agents.rnn_agent:RNNAgent
+  hidden_dim: 64
+
+train:
+  gamma: 0.99
+  lr: 0.0005
+  grad_clip: 10.0
+  target_tau: 0.005          # soft Polyak, identical for every method
+  buffer_episodes: 5000
+  batch_episodes: 32
+  total_env_steps: null      # set after the Set 1 throughput benchmark
+  num_envs: 128              # also set from that benchmark
+
+eval:
+  every_env_steps: 10000
+  episodes: 16               # open: 16 vs 32 (EXPERIMENT_PLAN.md Section 10)
+  greedy: true               # epsilon = 0
+  dump_records: true         # EvalRecord files for the offline evaluator
+
+schedules:
+  epsilon: {start: 1.0, end: 0.05, anneal_frac: 0.5}
+  # Sharpen late: an early-saturated softmax kills the TD gradient into S and
+  # silently turns the full method into the detached ablation.
+  temperature: {start: 1.0, end: 0.3, anneal_start_frac: 0.8}
+  beta_sharp: {start: 0.001, end: 0.05, anneal_start_frac: 0.8}
+
+losses:
+  beta_cut: 0.01     # keep small: a fixed W already pulls toward spatial groups
+  beta_cap: 0.1
+  beta_temp: 0.01
+  cap: 4.0           # tuned, NOT set from task knowledge
+
+affinity:
+  sigma: 0.5
+  knn: 6
+
+logging:
+  metrics_file: metrics.csv
+  summary_file: summary.json
+  log_every_env_steps: 1000

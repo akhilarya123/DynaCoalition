@@ -1,10 +1,10 @@
 # Work Division, Repo Structure, and Task Plan
 
-How the implementation splits between Abhishek and Akhil, a repo layout that lets us work asynchronously with almost no shared files, and a day-by-day task list for the 2-week budget.
+How the implementation splits between Abhishek and Akhil, a repo layout that lets us work asynchronously with almost no shared files, and a task plan organised as **task sets and sync points rather than dates** — with AI-paired programming, how long a set takes is unpredictable, but the order and the sync points are not.
 
 This expands [EXPERIMENT_PLAN.md](EXPERIMENT_PLAN.md) Section 9 and, where the two differ, **this file is now the agreed version** — Section 9 should be updated to match.
 
-**Constraints this is built around:** about 2 weeks; Abhishek has a GPU Windows laptop (WSL2) and a Claude Pro seat; Akhil has an M1 Air that has already handled MuJoCo RL training; no code-review bandwidth on either side; no shared SSH access between machines.
+**Constraints this is built around:** roughly a 2-week calendar budget; Abhishek has a GPU Windows laptop (WSL2) and a Claude Pro seat; Akhil has an M1 Air that has already handled MuJoCo RL training; no code-review bandwidth on either side; no shared SSH access between machines.
 
 ## 1. What carries over from the current plan
 
@@ -31,7 +31,7 @@ So we define equal as: **each person owns one gating deliverable, one piece of t
 
 **The controls sit with Akhil** because they *are* the experiment — Full vs. Detached only means something because oracle, position-clustering and random-S bracket it. If one person owns the method and the other owns the evidence for its claim, both are on the critical science rather than one doing plumbing. They are also a clean seam: every control returns `S` of shape `(B, T, N, K+1)` and can be built and tested against fake data without touching the mixer.
 
-**The one shared dependency to schedule early:** Abhishek needs a QMIX mixer module for the QMIX baseline anyway, so it ships by Day 3 and Akhil composes VAST-spatial (hard spatial assignment plus QMIX over the K summed sub-team values) on top of it instead of writing a mixer from scratch.
+**The one shared dependency to schedule early:** Abhishek needs a QMIX mixer module for the QMIX baseline anyway, so it ships in Set 2 and Akhil composes VAST-spatial (hard spatial assignment plus QMIX over the K summed sub-team values) on top of it instead of writing a mixer from scratch.
 
 ## 4. Compute, and what runs where
 
@@ -43,13 +43,13 @@ So we define equal as: **each person owns one gating deliverable, one piece of t
 
 **No SSH between machines.** If a run genuinely needs the GPU, the fallback is a spec in the repo: Akhil commits a config to `runs/queue.yaml`, Abhishek pulls and launches, and results land in `experiments/`. This should be the exception, not the workflow.
 
-**Physics tuning is the biggest single schedule risk and it sits on one person.** The Day-3 go/no-go in `EXPERIMENT_PLAN.md` Section 1 exists because this can eat a week, so make that check explicitly joint: if packages do not move sensibly by Day 3, both of us stop and fix the environment, because nothing downstream is worth running until it does.
+**Physics tuning is the biggest single schedule risk and it sits on one person.** The go/no-go check in `EXPERIMENT_PLAN.md` Section 1 exists because this can eat a week, so make it explicitly joint (Sync A below): if packages do not move sensibly, both of us stop and fix the environment, because nothing downstream is worth running until it does.
 
 **Extra capacity:** UW–Madison students have CHTC (HTCondor) access. If the grid gets tight at N = 24 × 5 seeds × 6 methods, that is real additional throughput for the **unpaired** runs.
 
 ## 5. Repo structure
 
-The structure exists to make sure **neither person has to open a file the other owns.** The only shared files are small, frozen on Day 1, and changed by explicit agreement.
+The structure exists to make sure **neither person has to open a file the other owns.** The only shared files are small, frozen in Set 0, and changed by explicit agreement.
 
 ### The four seams
 
@@ -69,18 +69,18 @@ DynaCoalition/
 │   work_division.md
 ├── CS839_RL_Literature_Survey.pdf
 ├── figures/figure1_architecture.png
-├── pyproject.toml                      # SHARED, day 1. cpu/cuda extras
+├── pyproject.toml                      # SHARED, set 0
 ├── configs/
-│   ├── base.yaml                       # SHARED, day 1
+│   ├── base.yaml                       # SHARED, set 0
 │   ├── env/transport_n12.yaml ...      # Akhil
 │   └── algo/qmix.yaml  vdn.yaml  full.yaml  detached.yaml
 │            oracle.yaml  poscluster.yaml  random_s.yaml
 │            vast_spatial.yaml  nearest.yaml
 ├── src/dc/
 │   ├── contracts.py                    # SHARED, FROZEN — the whole handshake
-│   ├── device.py  seeding.py           # SHARED, day 1, ~20 lines each
+│   ├── device.py  seeding.py           # SHARED, set 0
 │   ├── envs/
-│   │   ├── fake.py                     # SHARED, day 1 — emits contract-shaped batches
+│   │   ├── fake.py                     # SHARED, set 0 — emits contract-shaped batches
 │   │   ├── transport.py                # Akhil
 │   │   └── labels.py                   # Akhil (contact labels, tie-break)
 │   ├── agents/rnn_agent.py             # Abhishek
@@ -110,14 +110,6 @@ DynaCoalition/
 └── runs/queue.yaml                     # GPU job requests (fallback path only)
 ```
 
-### The three shared files
-
-**`contracts.py`** — the only file both of us depend on. It holds the batch spec from `Architecture.md` Section 7 as a dataclass or TypedDict with a `validate(batch)` that asserts every key, shape and dtype; the `MembershipProvider` protocol; and the `EvalRecord` schema. Frozen after Day 1. Changing it is a conversation, not a commit.
-
-**`envs/fake.py`** — written before either of us writes anything real. It generates random batches that pass `validate()`, with plausible positions and `gt_coalitions`. The whole training loop, mixer, losses and unit tests run against it, and the real environment is a one-line config swap later. Akhil's controls and metrics test against it too, so neither of us is blocked on the environment being finished.
-
-**`base.yaml`** — seeds, device, buffer, evaluation cadence, logging paths, and **K = N/2**.
-
 ### The one structural trick that matters
 
 **No central `--algo` dispatch file.** An `if algo == "oracle": ...` block is a merge-conflict magnet and it forces Akhil to edit the training loop every time he adds a control. Instead configs name a dotted path:
@@ -137,23 +129,30 @@ The loop does one `import_from_string(cfg.membership.target)`. Adding a control 
 - A roughly 15-line GitHub Action running `pytest` on CPU against the fake env catches contract drift before it costs either of us a day. Free, and the cheapest insurance in this plan.
 - `.gitignore`: `*.pt`, checkpoints, replay buffers, `wandb/`, raw videos. Commit only `metrics.csv` and `summary.json` under `experiments/`, as `EXPERIMENT_PLAN.md` Section 9 says.
 
-## 6. The Day-1 handshake
+## 6. Task Set 0: the shared files (joint, blocking)
 
-Before either of us writes a line of real code, agree on exactly three things. About two hours together, after which we can both go dark for a week and the pieces will still fit.
+Nothing else starts until these exist, because every later set is written against them. Abhishek writes them and pushes for both of us; Akhil reviews once and then they are frozen.
 
-**1. `contracts.py`.** The batch keys and shapes from `Architecture.md` Section 7, plus:
+| File | What it pins down |
+|---|---|
+| `src/dc/contracts.py` | `EnvSpec` (including **K = N/2**), the batch keys and shapes from `Architecture.md` §7, `validate_batch`, `validate_memberships`, the `MembershipProvider` protocol, `METRICS_COLUMNS`, and `EvalRecord` |
+| `src/dc/envs/fake.py` | A contract-shaped fake environment, so both halves of the code have data on day one |
+| `configs/base.yaml` | Seeds, device, buffer, eval cadence, K rule, and the dotted-path config convention |
+| `src/dc/device.py`, `seeding.py` | One place each for device selection and reproducible seeding |
+| `tests/test_contracts.py` | Both of us run it before every push; CI runs it on every commit |
+| `pyproject.toml`, `.github/workflows/ci.yml` | One dependency set, one CI check |
+
+**The membership provider signature** every control and the learned graph net must satisfy:
 
 ```python
 class MembershipProvider(Protocol):
     """Returns S of shape (B, T, N, K+1); rows sum to 1; column 0 is background."""
-    def forward(self, *, p, x, h, s, gt, K, mask) -> Tensor: ...
+    def forward(self, *, p, x, h, s, gt, k_slots, mask): ...
 ```
 
-Stateless controls ignore the arguments they do not need; the learned provider is the same signature with parameters. `gt` is passed to everyone but may only be read by the oracle.
+Stateless controls ignore the arguments they do not need; the learned provider has the same signature with parameters. `gt` is passed to everyone but may only be read by the oracle.
 
-**2. `envs/fake.py`.** Random but plausible batches that pass `validate()`.
-
-**3. The `metrics.csv` columns** (one row per evaluation point):
+**The `metrics.csv` columns** (one row per evaluation point):
 
 ```
 run_id, algo, n_agents, seed, env_step, wall_clock_s,
@@ -162,62 +161,78 @@ ari_contact, ari_all, switch_rate,
 grad_gnn_td, mean_max_membership, k_eff
 ```
 
-Plus the `EvalRecord` dump that the evaluator consumes: per evaluation episode, the per-step `argmax_k S` and `gt_coalitions` arrays with the in-contact mask, so ARI and switch rate are computed offline from files rather than from live objects.
+**The `EvalRecord` dump** the evaluator consumes: per evaluation episode, the per-step `argmax_k S` and `gt_coalitions` arrays plus the in-contact mask, so ARI and switch rate are computed offline from files rather than from live objects.
 
 ## 7. Task plan
 
-Days are working days from the start of implementation, not calendar dates. **Day 1 is joint; everything after runs in parallel.**
+Sets run in order; within a set, the two columns run in parallel and independently. A **sync** is the only point where we have to be in the same room.
 
-### Abhishek
+### Set 1 — Skeletons
 
-| Day | Task | Done when |
-|---|---|---|
-| 1 | Joint handshake. Repo skeleton, `pyproject.toml`, `device.py`, `seeding.py`, `contracts.py`, `envs/fake.py`, pytest CI action | `pytest` green on CI against the fake env |
-| 2 | `agents/rnn_agent.py` (GRU agent), `train/replay.py` (whole-episode replay, masking, padding) | Episodes round-trip through the buffer with correct shapes and masks |
-| 2 | **Throughput benchmark** on fake + VMAS defaults, `num_envs` ∈ {32, 128, 512} | A steps/second number that sizes the training budget (`EXPERIMENT_PLAN.md` §4) |
-| 3 | `mixers/qmix.py` and `mixers/vdn.py` — **ship these first, Akhil's VAST-spatial depends on `qmix.py`** | QMIX trains on the fake env without error; pushed to `main` |
-| 3 | `train/targets.py` (Double-Q per `Architecture.md` §7), `schedules.py` (ε, T, β_sharp), `logging.py` (writes `metrics.csv`) | The checklist items in `Architecture.md` §11 for targets and masking all pass |
-| 3 | **Joint Day-3 go/no-go** on the environment | QMIX at N = 12 shows packages delivered rising above 0, or we stop and fix the env |
-| 4 | `membership/graph_net.py`, `mixers/coalition_mix.py`: pooling, shared `g` hypernetwork, `g_bg`, the −g(0) offset | Monotonicity, permutation-invariance and empty-slot tests pass (`Architecture.md` §10) |
-| 5 | `losses/structure.py`: cut, cap, sharpness, temporal + diagnostics logging (‖∇_GNN L_TD‖, mean max membership, K_eff) | Detach test passes exactly (gradient 0 with `detach=True`, > 0 without); cut loss recovers planted partitions |
-| 6 | Swap the fake env for Akhil's real env; end-to-end short run at N = 12; walk the whole bug checklist | Full and Detached both train end to end for 20k steps without NaNs |
-| 7 | Tune QMIX properly (Adam, TD(λ), long ε decay, large buffer); fix the training budget from the Day-2 benchmark | A QMIX N = 12 curve that clearly learns; budget written into `base.yaml` |
-| 8–11 | **Main grid**, paired, same device: QMIX, Full, Detached × 5 seeds × N ∈ {12, 24}. Then Oracle, then VAST-spatial as GPU time allows | `experiments/` filling with `metrics.csv` per run; diagnostics checked daily against `EXPERIMENT_PLAN.md` §8 |
-| 12 | Overhead table (all methods, same machine); rerun any failed or diverged seeds | Overhead row complete; no seed missing from the must-run set |
-| 13–14 | Report: method and experimental setup sections; support final assembly | Sections drafted in the report repo/Overleaf |
+| Abhishek | Akhil |
+|---|---|
+| `agents/rnn_agent.py` (GRU agent) and `train/replay.py` (whole-episode replay, masking, padding). *Done when:* episodes round-trip through the buffer with correct shapes and masks | `envs/transport.py` skeleton: VMAS transport fork, M = N/3 packages, discrete actions. *Done when:* the env constructs and steps at N = 12 |
+| **Throughput benchmark** on fake + VMAS defaults, `num_envs` ∈ {32, 128, 512}. *Done when:* a steps/second number exists to size the training budget | `envs/labels.py`: respawn on delivery, contact labels, nearer-package tie-break, `tests/test_env_contract.py`. *Done when:* real env batches pass `validate_batch` |
 
-### Akhil
+### Set 2 — Baselines and physics → **Sync A**
 
-| Day | Task | Done when |
-|---|---|---|
-| 1 | Joint handshake. `envs/transport.py` skeleton: VMAS transport fork, M = N/3 packages, discrete actions | Env constructs and steps at N = 12 |
-| 2 | Respawn on delivery; `envs/labels.py` contact labels with the nearer-package tie-break; `tests/test_env_contract.py` | Real env batches pass `contracts.validate()` |
-| 2–3 | **Physics and reward tuning**: mass and force so 1–2 agents move a package slowly and 3 move it clearly faster; progress shaping, delivery bonus, collision penalty | A scripted 3-agent policy delivers a package; a 1-agent one barely moves it |
-| 3 | **Joint Day-3 go/no-go** with Abhishek | Decision recorded: proceed, or stop and tune |
-| 4 | `eval/evaluator.py`, `ari.py`, `switch.py`, `metrics.py` against dumped `EvalRecord` files; `tests/test_metrics.py` on synthetic records | ARI (contact and all-agents) and switch rate correct on hand-built cases |
-| 5 | Controls as membership providers: `oracle.py`, `random_s.py`, `position.py` (k-means or soft RBF), `nearest.py`; `tests/test_providers.py` | Every provider returns `(B, T, N, K+1)`, rows sum to 1, background column used correctly |
-| 6 | `mixers/vast.py`: hard spatial assignment plus QMIX over the K summed sub-team values, composed from Abhishek's `qmix.py` | VAST-spatial trains on the fake env |
-| 7 | `analysis/aggregate.py` and `plots.py`: read `experiments/*/metrics.csv`, rliable IQM with stratified bootstrap CIs, paired Full − Detached differences | Figures render end to end from **synthetic** CSVs, before any real run finishes |
-| 8–11 | **Mac runs** at N = 12, 5 seeds: VDN, random S, nearest-package, position clustering. Regenerate figures as results land | Those four methods complete with committed `metrics.csv` |
-| 12 | Final figures from the real grid; per-seed curves; the null-result diagnostics table from `EXPERIMENT_PLAN.md` §8 | All report figures final |
-| 13–14 | Report: results, analysis, related work, and assembly | Full draft assembled |
+| Abhishek | Akhil |
+|---|---|
+| `mixers/qmix.py` and `mixers/vdn.py` — **push these first, Akhil's VAST-spatial depends on `qmix.py`**. *Done when:* QMIX trains on the fake env and is on `main` | **Physics and reward tuning**: mass and force so 1–2 agents move a package slowly and 3 move it clearly faster; progress shaping, delivery bonus, collision penalty. *Done when:* a scripted 3-agent policy delivers a package and a 1-agent one barely moves it |
+| `train/targets.py` (Double-Q per `Architecture.md` §7), `schedules.py` (ε, T, β_sharp), `logging.py` (writes `metrics.csv`). *Done when:* the target and masking items in the §11 checklist pass | |
+
+**Sync A — the go/no-go.** QMIX at N = 12 must show packages delivered rising above 0. If no method learns, it is an **environment** problem: both of us stop and fix it before anything else proceeds.
+
+### Set 3 — Method core and measurement
+
+| Abhishek | Akhil |
+|---|---|
+| `membership/graph_net.py` and `mixers/coalition_mix.py`: pooling, the shared `g` hypernetwork, `g_bg`, the −g(0) offset. *Done when:* monotonicity, permutation-invariance and empty-slot tests pass (`Architecture.md` §10) | `eval/evaluator.py`, `ari.py`, `switch.py`, `metrics.py`, built against dumped `EvalRecord` files; `tests/test_metrics.py`. *Done when:* ARI (contact and all-agents) and switch rate are correct on hand-built cases |
+
+### Set 4 — Losses and controls
+
+| Abhishek | Akhil |
+|---|---|
+| `losses/structure.py` (cut, cap, sharpness, temporal) and diagnostics logging. *Done when:* the detach test passes exactly — gradient 0 with `detach=True`, > 0 without — and the cut loss recovers planted partitions | The four controls as membership providers: `oracle.py`, `random_s.py`, `position.py`, `nearest.py`, plus `tests/test_providers.py`. *Done when:* every provider returns `(B, T, N, K+1)`, rows sum to 1, background used correctly |
+| | `mixers/vast.py`: hard spatial assignment plus QMIX over the K summed sub-team values, composed from `qmix.py`. *Done when:* VAST-spatial trains on the fake env |
+
+### Set 5 — Integration → **Sync B**
+
+| Abhishek | Akhil |
+|---|---|
+| Swap `fake.py` for the real env; end-to-end short run at N = 12; walk the whole `Architecture.md` §11 checklist. *Done when:* Full and Detached both train for 20k steps without NaNs | `analysis/aggregate.py` and `plots.py`: rliable IQM with stratified bootstrap CIs, paired Full − Detached differences. *Done when:* every report figure renders end to end from **synthetic** CSVs |
+| Tune QMIX properly (Adam, TD(λ), long ε decay, large buffer) and fix the training budget from the Set 1 benchmark. *Done when:* a QMIX N = 12 curve clearly learns and the budget is in `base.yaml` | |
+
+**Sync B — integration.** The real env, the real mixer and the real evaluator all run together. This is the point to re-read the bug checklist together.
+
+### Set 6 — Runs → **Sync C**
+
+| Abhishek (GPU) | Akhil (M1) |
+|---|---|
+| **Main grid**, paired, same device: QMIX, Full, Detached × 5 seeds × N ∈ {12, 24}. Then Oracle, then VAST-spatial as GPU time allows. Diagnostics checked against `EXPERIMENT_PLAN.md` §8 as runs land | **Mac runs** at N = 12, 5 seeds: VDN, random S, nearest-package, position clustering. Regenerate figures as results land |
+| Overhead table (all methods, same machine); rerun any failed or diverged seeds | Final figures, per-seed curves, and the null-result diagnostics table from §8 |
+
+**Sync C — results freeze.** No new runs after this, only writing.
+
+### Set 7 — Writing
+
+| Abhishek | Akhil |
+|---|---|
+| Method and experimental setup sections | Results, analysis, related work, and final assembly |
 
 ### Dependency edges (the only places we can block each other)
 
-| Edge | By | Fallback if late |
+| Edge | Needed by | Fallback if late |
 |---|---|---|
-| `contracts.py` + `fake.py` (joint) | Day 1 | Nothing proceeds — this is the hard gate |
-| `mixers/qmix.py` (Abhishek → Akhil) | Day 3 | Akhil reorders: controls first, VAST-spatial after |
-| Real env (Akhil → Abhishek) | Day 6 | Abhishek keeps running on `fake.py`; main grid slips |
-| Evaluator (Akhil → Abhishek) | Day 6 | Abhishek logs raw `EvalRecord` dumps; metrics computed later |
-| First real `metrics.csv` (Abhishek → Akhil) | Day 8 | Akhil's plots already work on synthetic CSVs |
+| `contracts.py` + `fake.py` (joint) | Set 0 | Nothing proceeds — this is the hard gate |
+| `mixers/qmix.py` (Abhishek → Akhil) | Set 4 | Akhil reorders: controls first, VAST-spatial after |
+| Real env (Akhil → Abhishek) | Set 5 | Abhishek keeps running on `fake.py`; the grid slips |
+| Evaluator (Akhil → Abhishek) | Set 5 | Abhishek dumps raw `EvalRecord` files; metrics computed later |
+| First real `metrics.csv` (Abhishek → Akhil) | Set 6 | Akhil's plots already work on synthetic CSVs |
 
-### Milestones and the cut list
+### The cut list
 
-- **Day 3:** environment go/no-go. If no method learns, it is an environment problem — stop and fix it.
-- **Day 6:** end-to-end integration. Full and Detached training on the real env.
-- **Day 8:** the main grid starts. **If it has not started by Day 8, cut scope**, in the priority order in `EXPERIMENT_PLAN.md` §3: drop N = 48, then nearest-package, then random S, then VDN, then position clustering. Never cut QMIX, Full, Detached, or the 5 seeds.
-- **Day 12:** results frozen. No new runs after this, only writing.
+**If Sync B has not happened by the time half the calendar budget is gone, cut scope** rather than compressing the runs — the grid needs real wall-clock time and the 5 seeds are not negotiable. Cut in the `EXPERIMENT_PLAN.md` §3 priority order: drop N = 48, then nearest-package, then random S, then VDN, then position clustering. **Never cut QMIX, Full, Detached, or the 5 seeds.**
 
 ## 8. Decisions settled here
 
@@ -225,7 +240,6 @@ Days are working days from the start of implementation, not calendar dates. **Da
 - **The training loop is written from scratch** (thin, roughly 600 lines) rather than forked from pymarl2 or built on BenchMARL. The detach semantics, the shared `g` and the background head cut across the mixer, which is exactly what a framework would fight.
 - **The controls belong to Akhil**, as in Section 3.
 - **No SSH.** Akhil's Mac owns the unpaired N = 12 baselines and controls; the fallback for GPU-only work is a config committed to `runs/queue.yaml`.
+- **Abhishek writes the Set 0 shared files** and pushes them for both of us.
 
-**Still open, and deliberately so:** the training budget per run (set after the Day-2 throughput benchmark), the overhead threshold (1.5× vs. 2.0×), evaluation episodes (16 vs. 32), VAST-spatial assignment (grid regions vs. k-means), and the physics and reward constants (set during Days 2–3). All are tracked in `EXPERIMENT_PLAN.md` §10.
-
-**One thing to pin down:** Day 1 above is relative. Map it to a calendar date against the actual report deadline, and check that Day 14 lands before submission with slack.
+**Still open, and deliberately so:** the training budget per run (set after the Set 1 throughput benchmark), the overhead threshold (1.5× vs. 2.0×), evaluation episodes (16 vs. 32), VAST-spatial assignment (grid regions vs. k-means), and the physics and reward constants (set during Set 2). All are tracked in `EXPERIMENT_PLAN.md` §10.
