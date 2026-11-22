@@ -16,5 +16,6 @@ Context for the DynaCoalition course project (Advanced Topics in RL, UW–Madiso
 | [Architecture.md](Architecture.md) | The exact equations, tensor shapes, interfaces, environment contract, defaults, pseudocode, unit tests, and a bug checklist | While implementing |
 | [EXPERIMENT_PLAN.md](EXPERIMENT_PLAN.md) | Environment design, baselines and controls, protocol, metrics, statistics, success criteria, diagnostics, the work split, and the decisions log | Before running experiments, and when planning work |
 | [RELATED_WORK_NOTES.md](RELATED_WORK_NOTES.md) | Verified facts about the closest papers, and citation corrections | When writing the final report |
+| [work_division.md](work_division.md) | The proposed work split, the repo layout that keeps us asynchronous, and the day-1 handshake | Before starting implementation |
 
 The approved literature survey PDF is in the repo as `CS839_RL_Literature_Survey.pdf`; its Figure 1 is the architecture diagram (also at `figures/figure1_architecture.png`, embedded in `Architecture.md`).
