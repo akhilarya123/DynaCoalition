@@ -76,6 +76,11 @@ def _make_scenario_class():
             self.delivery_bonus = kwargs.pop("delivery_bonus", 5.0)
             self.collision_penalty = kwargs.pop("collision_penalty", 0.01)
             self.contact_threshold = kwargs.pop("contact_threshold", 0.02)
+            # Coulomb-style kinetic friction on packages (VMAS ``linear_friction``,
+            # a deceleration in units/s^2; friction force = coeff * mass). None = off.
+            # Gives a real "need >= theta pushers" threshold: motion needs
+            # k * agent_u_multiplier > package_friction * package_mass.
+            self.package_friction = kwargs.pop("package_friction", None)
             self.obs_k = kwargs.pop("obs_k_packages", 2)
             ScenarioUtils.check_kwargs_consumed(kwargs)
             if self.n_packages < self.obs_k:
@@ -114,6 +119,7 @@ def _make_scenario_class():
                     collide=True,
                     movable=True,
                     mass=self.package_mass,
+                    linear_friction=self.package_friction,
                     shape=Box(length=self.package_length, width=self.package_width),
                     color=Color.RED,
                 )
