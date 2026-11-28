@@ -1,0 +1,12 @@
+name: vast_spatial
+# VAST-spatial: hard spatial sub-teams + QMIX over the K summed sub-team values.
+# It owns its assignment, so there is no separate membership entry.
+# BLOCKED on Abhishek's dc.mixers.qmix: base / base_kwargs assume QMixer(n_agents=K, state_dim=...).
+# assignment: grid (fixed map regions; default) | kmeans
+mixer:
+  target: dc.mixers.vast:build_vast_spatial
+  args:
+    base: dc.mixers.qmix:QMixer
+    base_kwargs: {}
+    assignment: grid
+    bounds: 1.0

@@ -1,0 +1,8 @@
+name: random_s
+# Control: membership comes from a parameter-free provider, so nothing trains S and
+# the structure losses have nothing to shape. Convention: work_division.md "The one
+# structural trick". ASSUMPTION: the loader builds membership with target(**args) and the
+# mixer with target(spec, **args); confirm with the training-loop owner.
+# mode: iid (fresh noise every step) | episode (random but static groups)
+membership: { target: dc.membership.random_s:RandomProvider, args: { alpha: 1.0, mode: iid, seed: 0 } }
+mixer:      { target: dc.mixers.coalition_mix:CoalitionMix, args: { detach: false } }

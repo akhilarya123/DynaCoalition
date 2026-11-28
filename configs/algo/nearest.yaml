@@ -1,0 +1,9 @@
+name: nearest
+# Control: membership comes from a parameter-free provider, so nothing trains S and
+# the structure losses have nothing to shape. Convention: work_division.md "The one
+# structural trick". ASSUMPTION: the loader builds membership with target(**args) and the
+# mixer with target(spec, **args); confirm with the training-loop owner.
+# offset_sign: +1 for dc.envs.transport (stores package - agent); -1 for dc.envs.fake.
+# radius: null = every agent joins a package; a number sends farther agents to background.
+membership: { target: dc.membership.nearest:NearestPackageProvider, args: { offset_sign: 1, radius: null } }
+mixer:      { target: dc.mixers.coalition_mix:CoalitionMix, args: { detach: false } }

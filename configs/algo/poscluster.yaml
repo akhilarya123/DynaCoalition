@@ -1,0 +1,8 @@
+name: poscluster
+# Control: membership comes from a parameter-free provider, so nothing trains S and
+# the structure losses have nothing to shape. Convention: work_division.md "The one
+# structural trick". ASSUMPTION: the loader builds membership with target(**args) and the
+# mixer with target(spec, **args); confirm with the training-loop owner.
+# mode: kmeans (hard) | soft (RBF over k-means centres; tau = softness)
+membership: { target: dc.membership.position:PositionClusterProvider, args: { mode: kmeans, iters: 10, tau: 0.1 } }
+mixer:      { target: dc.mixers.coalition_mix:CoalitionMix, args: { detach: false } }

@@ -1,14 +1,17 @@
 # Akhil's side: design decisions, assumptions, and open questions
 
 For Abhishek. This explains what I built, why I made each choice, and which parts need
-your input. Everything here is about the files I own (environment, physics, evaluator).
+your input. Everything here is about the files I own (environment, physics, evaluator, controls, VAST).
 I have **not** edited any shared file (`contracts.py`, `fake.py`, `base.yaml`,
 `pyproject.toml`, `device.py`, `seeding.py`).
 
-**Status:** Sets 1 and 3 are done and Set 2 (physics) is done to the extent a probe can do it.
-Set 4 (controls) and Set 5 (analysis) have not started. Test suite on my M1: 76 passed,
-plus one sklearn-comparison test that runs once scikit-learn is installed. All env tests
-ran against real VMAS.
+**Status:** Sets 1 and 3 are done; Set 2 (physics) is done as far as a probe can take it;
+Set 4 is done **except VAST-spatial**, which is written but blocked on `mixers/qmix.py`
+(section 6). Set 5 (analysis) has not started. Last full run on my M1 before Set 4: 77 passed,
+0 skipped. The Set 4 tests add 52 (expect 129 passed, 0 skipped); the numpy-side Set 4
+math was verified in a sandbox, the torch-gated parts have not run yet (section 7).
+
+*This file is updated after every set. See the update log at the end.*
 
 ---
 
@@ -25,6 +28,10 @@ These are the interfaces and decisions that touch your code. Everything else is 
 | 5 | **`assignments` for methods without memberships (QMIX, VDN).** | Fill the array with `-1`. | Then their ARI and switch cells stay empty instead of showing a misleading 0. |
 | 6 | **Who writes `metrics.csv`?** | Your `logging.py` writes the trainer columns. My tool fills `ari_contact`, `ari_all`, `switch_rate` afterwards and never overwrites your values. | Two writers on one file would conflict. |
 | 7 | **Delivery events in records (optional).** | Put `meta["deliveries"] = [[step, package_idx], ...]` in each `EvalRecord`. | Needed only for the "regroup within 10 steps after a delivery" criterion. The env already reports `info["delivered_now"]` each step. |
+| 8 | **`gt_coalitions` has T entries, but the oracle needs T+1.** The target-side oracle call (states 1..T) has no label for the last step. | Make `gt_coalitions` observation-like, `(B, T+1, N)`. Touches `contracts.py` (`_FIELDS`), `fake.py`, `test_contracts.py` and the `Architecture.md` §8 table. My `rollout_to_batch` already produces T+1 labels. If you would rather not change the contract, the oracle can reuse `gt[T-1]` for the last step (wrong at that one step only). | Without this the Oracle control is slightly inexact on the target network. |
+| 9 | **`qmix.py` interface for VAST-spatial.** I do not have your file. | I assumed `QMixer(n_agents=K, state_dim=..., **kwargs)` with `forward(values (B,T,K), state (B,T,state_dim)) -> (B,T,1)`. | VAST is blocked until I see the real signature (section 6). |
+| 10 | **How does `CoalitionMix` take an external `S`?** And the loader convention. | Providers are called keyword-only: `forward(p=, x=, h=, s=, gt=, k_slots=, mask=)`, aligned with the other inputs (`[:, :-1]` online, `[:, 1:]` target). My algo yamls assume `membership.target(**args)` and `mixer.target(spec, **args)`. | Controls only work if `CoalitionMix` accepts an injected provider instead of always building its graph net. |
+| 11 | **Sign of the nearest-package offset differs between `fake.py` and the env.** | `fake.py` stores `agent - package`; `transport.py` stores `package - agent`. `NearestPackageProvider` takes `offset_sign` (+1 default for the real env, -1 for fake), so no shared file needs to change. | Only a trap if someone runs the nearest control on the fake env with the default. |
 
 ---
 
@@ -38,12 +45,20 @@ src/dc/eval/ari.py                adjusted Rand index (numpy, no sklearn needed)
 src/dc/eval/switch.py             switch rate and pair-flip rate
 src/dc/eval/metrics.py            per-episode and per-eval-point aggregation
 src/dc/eval/evaluator.py          record IO, metrics.csv merge, CLI
+src/dc/membership/_xp.py          numpy/torch shim shared by the providers (private)
+src/dc/membership/oracle.py       OracleProvider (ground-truth contact)
+src/dc/membership/position.py     PositionClusterProvider (k-means / soft), GridProvider, grid helpers
+src/dc/membership/random_s.py     RandomProvider (Dirichlet)
+src/dc/membership/nearest.py      NearestPackageProvider
+src/dc/mixers/vast.py             VASTSpatial + pure pooling helper (QMIX injected)
+configs/algo/oracle.yaml  poscluster.yaml  random_s.yaml  nearest.yaml  vast_spatial.yaml
 configs/env/transport_n12.yaml    N=12, M=4, K=6
 configs/env/transport_n24.yaml    N=24, M=8, K=12
-tests/test_labels.py  test_env_contract.py  test_physics_probe.py  test_metrics.py
+tests/test_labels.py  test_env_contract.py  test_physics_probe.py  test_metrics.py  test_providers.py
 ```
 
-`labels.py`, the whole `eval/` package and `contracts` stay importable without torch.
+`labels.py`, the whole `eval/` package, the whole `membership/` package and `vast.py`'s helpers
+stay importable without torch.
 `transport.py` imports torch and VMAS lazily, so CI without torch can still import it.
 
 ---
@@ -180,15 +195,79 @@ Afterwards: `python -m dc.eval.evaluator experiments/<run_id>`. It takes a fract
 
 ---
 
-## 6. What is verified and what is not
+## 6. Controls and VAST-spatial (Set 4)
+
+### 6.1 Shared conventions
+
+Every control is a `MembershipProvider`: keyword-only `forward(p, x, h, s, gt, k_slots, mask)` returning
+`S` of shape `(B, T, N, K+1)`, float32, rows summing to 1, column 0 = background. `h`, `s` and `mask` are
+ignored by all of them; `S` is valid even on padded steps, so downstream masking works as usual. Only the
+oracle reads `gt`, and a test checks that no other provider changes its output when `gt` is removed.
+All providers are **parameter-free**, so target networks need no copy for them.
+
+I wrote the providers duck-typed over numpy and torch (same approach as `labels.py`), through the small
+`membership/_xp.py` shim. The reason: CI has no torch, and I could verify the math in numpy. The torch
+paths are covered by gated tests that I could not run in my sandbox (section 7).
+
+### 6.2 Decisions per control
+
+| Control | What I chose | Why / trade-off |
+|---|---|---|
+| **Oracle** | One-hot of `gt`: label `k` goes to slot `k`, label 0 to background. Slots `M+1..K` stay empty. `check=True` validates the label range (costs a device sync; set `False` in the hot loop). | K = N/2 > M = N/3 guarantees every package a slot. This is the ceiling control. See question 8 about T vs T+1 labels. |
+| **Position clustering** | Deterministic k-means per step: farthest-point init starting at agent 0, then 10 Lloyd steps, empty clusters keep their old centre. `mode="soft"` softens with an RBF over the centre distances (`tau=0.1`, **untuned**). Column 0 stays empty. | No RNG, so paired runs and tests are reproducible. Per-step clustering means slot *labels* can flicker between steps. That is harmless to the mixer (shared `g`) but inflates `switch_rate`; read `pair_flip_rate` alongside it. |
+| **Grid** | `GridProvider`: hard assignment to K fixed map regions, `grid_shape(K)` = most-square factorisation (6 -> 3x2, 12 -> 4x3). Arena `[-1, 1]^2`, outliers clamped into border cells. | Not in the original control list; added because VAST needs slots with a stable meaning (below). |
+| **Random S** | Dirichlet(alpha=1.0) over all K+1 columns, so background gets about 1/(K+1) of the mass like every slot. `mode="iid"` (default) draws fresh noise every step; `mode="episode"` draws once per episode so groups are random but static. | The plan says "random memberships (e.g., Dirichlet)". `iid` is pure noise; `episode` is closer to VAST's random sub-teams, so both are available. `alpha` is kept at 1.0 because float32 Dirichlet with tiny alpha can underflow. Torch path uses torch's *global* RNG (seed with `set_seed`); the numpy path has its own seeded generator. |
+| **Nearest package** | Providers get `x` but not package identity, so identity is recovered from geometry: `target = p + offset_sign * offset` is the nearest package's position, and agents share a group when their targets agree within `tol=1e-4`. Groups are numbered by their lowest-index member and capped at K. `radius` (default `None`) optionally sends far agents to background. | Needs no contract change. It reads `x` columns 4:6 (offset) and 6 (distance), which is a layout assumption. See question 11 for the sign trap. Nearest is by *centre* distance, whereas the ground-truth label uses *edge* distance, so the two can differ slightly in the real env. |
+
+### 6.3 VAST-spatial (partly done)
+
+- **What it is:** hard spatial sub-teams, sub-team value = plain sum of members' utilities, then QMIX over the K values.
+  K = N/2 sub-teams, the same K as ours; that is my assumption, VAST itself does not fix K.
+- **Assignment default is `grid`, not k-means.** QMIX's hypernetwork weights are per input position, so slot `c`
+  must mean the same thing at every step. A fixed grid cell does; a per-step k-means index is an arbitrary
+  permutation. `assignment="kmeans"` is available. EXPERIMENT_PLAN §10 lists grid-vs-k-means as open; this is my
+  recommendation, not a decision. Using k-means would likely handicap VAST for a reason unrelated to its idea.
+- **QMIX is injected**, so I neither edit nor assume the internals of your `qmix.py`. `VASTSpatial(spec, mixer)` takes
+  any module mapping `(values (B,T,K), state)` to `(B,T,1)`. `VASTSpatial.build(...)` (or the config-friendly
+  `build_vast_spatial`) resolves a dotted path and calls it with `n_agents=K, state_dim=...`, which is **my assumption
+  about your constructor** (question 9).
+- `forward` mirrors `coalition_mix`: `(q_sel, h, x, s, p, *, detach, temperature)` returning `(Q_tot, S, aux)`, with
+  `h, x, detach, temperature` ignored. It returns a one-hot `S` so the evaluator can read assignments like for any method.
+- IGM still holds (non-negative sums into a monotone QMIX).
+- The mixer *does* have parameters, so unlike the providers it needs a target copy and a Polyak update.
+- **"Done when: VAST-spatial trains on the fake env" is NOT met.** It needs your `qmix.py` and your loop. Until then the
+  pooling math is tested (numpy) and the module is tested with a stand-in mixer (torch, gated).
+
+### 6.4 Configs
+
+`configs/algo/{oracle,poscluster,random_s,nearest}.yaml` follow the dotted-path convention in `work_division.md`
+(membership target + `CoalitionMix` mixer). A test resolves every membership target in them and builds the provider.
+`vast_spatial.yaml` names `dc.mixers.vast:build_vast_spatial`. Whether your loader calls `target(**args)` for
+membership and `target(spec, **args)` for the mixer is my assumption (question 10). `detach` is irrelevant for the
+controls, since nothing trains `S`; I left it `false`.
+
+---
+
+## 7. What is verified and what is not
 
 **Verified (ran on real VMAS on my machine):**
 - Real rollouts pass `validate_batch` at N=12 and N=24; no NaNs over a 30-step random rollout.
 - Action directions, contact labels, delivery counting and package respawn behave as designed; the time limit is the only `done`.
 - Physics tables in section 4 are measured, not estimated.
 - ARI is numerically identical to sklearn; hand-computed cases pass for ARI, switch rate and the metrics aggregation.
+- **Set 4, numpy path (run in a sandbox without torch):** every provider on the fake env at N=12 and N=24 returns the
+  right shape, float32, non-negative, rows summing to 1; the oracle equals the one-hot of `gt` and uses background exactly
+  where nothing is touched; k-means (hard and soft) recovers planted blobs exactly (ARI = 1), is deterministic and
+  translation invariant, and survives duplicate points; the grid maps cell centres to distinct fixed slots; random S uses
+  background like any column and honours `iid`/`episode`/seed; nearest recovers planted groups, honours the sign and the
+  radius, and on the fake env matches ground truth on contact agents exactly (ARI = 1.0); sub-team pooling conserves the total.
 
 **Not verified:**
+- **Set 4 torch paths.** 9 gated tests (numpy/torch parity for the deterministic providers, random S on torch, `VASTSpatial`
+  with a stand-in mixer) could not run in the sandbox. They are written against torch semantics I checked by reading, not by
+  running, so a first-run failure there is plausible.
+- **VAST-spatial with real QMIX, and in training.** Blocked (section 6.3).
+- Choice of `tau=0.1` for soft clustering and of the grid default; neither has been tuned or compared.
 - That QMIX (or anything) can learn on this physics. That is the Sync A go/no-go.
 - Reward constants. They are placeholders.
 - N=24 physics. It was constructed and stepped, but never probed.
@@ -198,29 +277,45 @@ Afterwards: `python -m dc.eval.evaluator experiments/<run_id>`. It takes a fract
 
 ---
 
-## 7. Known limitations and risks
+## 8. Known limitations and risks
 
 - **Hard threshold risk:** under friction a lone agent makes little progress, so early exploration depends on three agents meeting at a package. The plan's fallbacks apply: a small approach reward (risk: hovering), a light-package curriculum, a longer ε decay, or switching to config A.
 - **Spatial bias in ground truth:** contact is purely geometric, so the oracle control and the contact ARI favour spatially compact groups, which is also what the detached ablation learns. This is inherent to the plan, not a bug.
 - **Coalition size ceiling:** about 3 agents fit on one face of a package, so larger coalitions only help if they push from several faces.
+- **Per-step control labels flicker.** Position clustering, nearest and iid random S relabel slots between steps, which
+  inflates `switch_rate` without any real regrouping. Compare them using ARI and `pair_flip_rate`.
+- **Controls inherit the spatial bias** of the ground truth and of the detached ablation. The oracle, nearest and
+  position controls all favour spatially compact groups, so small gaps between them are expected.
 - **Observation sees only the 2 nearest packages.** An agent far from any package gets little information about the others.
 
 ---
 
-## 8. What comes next (my side)
+## 9. What comes next (my side)
 
-1. **Set 4: controls as `MembershipProvider`s.** Oracle (contact): one-hot from `gt`, slot index = package index. Because K = N/2 > M = N/3 this always fits, with background in column 0. Then position clustering, random S, and nearest-package.
-   - *Known snag for nearest-package:* providers receive `x`, which has the nearest package's *offset* but not its *identity*. I plan to recover package identity from `p + offset` (agents with the same nearest package give the same point). If you would rather add a field to the contract, tell me early.
-2. **VAST-spatial** on top of your QMIX mixer once it exists.
-3. **Set 5: analysis**: rliable aggregation and the figures, built on synthetic CSVs first.
-4. **Unpaired runs at N=12** on the M1 once your training loop exists.
+1. **Finish VAST-spatial** once I have `mixers/qmix.py` (questions 9 and 10), including a smoke run on the fake env.
+2. **Set 5: analysis**: rliable aggregation and the figures, built on synthetic CSVs first.
+3. **Unpaired runs at N=12** on the M1 (VDN, random S, nearest, position clustering) once your training loop exists.
+4. Revisit the regroup-after-delivery metric if you add `meta["deliveries"]` (question 7).
 
-## 9. How to run and test my side
+## 10. How to run and test my side
 
 ```bash
 python -m pytest -q -rs                                   # whole suite; 0 skipped once sklearn is installed
 python -m dc.tools.physics_probe --u-mult 2.0 --masses 3 --frictions 0.93 1.27 --pushers 0 1 2 3
 python -m dc.eval.evaluator experiments/<run_id>          # after eval records are dumped
+python -m pytest tests/test_providers.py -q -rs           # Set 4; torch-gated tests run only with torch
 ```
 
 Use `python -m pytest`, not bare `pytest`. On my machine bare `pytest` resolved to a pyenv shim outside the venv and silently skipped every torch and VMAS test.
+
+---
+
+## Update log
+
+*(Updated after every set, with code and tests.)*
+
+- **Set 1 (env):** `labels.py`, `transport.py`, env contract tests, N=12/N=24 configs.
+- **Set 2 (physics):** `physics_probe.py`; chose `u=2.0`, mass 3, friction 0.93 (config B); added the `package_friction` knob.
+- **Set 3 (evaluator):** `ari.py`, `switch.py`, `metrics.py`, `evaluator.py`, `test_metrics.py`.
+- **Set 4 (controls):** the four providers, `GridProvider`, `vast.py` (QMIX injected, unfinished), five algo yamls,
+  `test_providers.py`. New open questions 8 to 11. Added section 6; sections after it renumbered.
